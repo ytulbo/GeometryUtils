@@ -22,7 +22,7 @@ add_library(happly INTERFACE)
 target_include_directories(happly INTERFACE "${HAPPLY_SOURCE_DIR}")
 target_compile_features(happly INTERFACE cxx_std_14)
 
-add_library(geometry_lib geometry.cpp)
+add_library(geometry_lib geometry.cpp geometry.hpp threadpool.hpp)
 target_include_directories(geometry_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(geometry_lib PUBLIC happly)
 target_compile_features(geometry_lib PUBLIC cxx_std_20)
