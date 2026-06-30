@@ -133,60 +133,59 @@ std::vector<Segment> cutMeshWithPlane(const Mesh &m, const Plane &p)
 {
     std::vector<Segment> intersectionSegments;
     std::mutex intersectionMutex;
-    const auto workerCount = std::max(1u, std::thread::hardware_concurrency());
-    ThreadPool pool(workerCount);
-    std::vector<std::future<void>> futures;
-    futures.reserve(m.triangles.size());
-
-    for (const auto& triangleIndices: m)
     {
-        auto triangleIntersectingPlane = [&](Triangle t)
-         {
-            const std::array vertices{t.a, t.b, t.c};
-            const std::array distances{
-                signedDistanceFromPointToPlane(t.a, p),
-                signedDistanceFromPointToPlane(t.b, p),
-                signedDistanceFromPointToPlane(t.c, p),
+        const auto workerCount = std::max(1u, std::thread::hardware_concurrency());
+        ThreadPool pool(workerCount);
+        std::vector<std::future<void>> futures;
+        futures.reserve(m.triangles.size());
+
+        for (const auto& triangleIndices: m)
+        {
+            auto triangleIntersectingPlane = [&](Triangle t)
+            {
+                const std::array vertices{t.a, t.b, t.c};
+                const std::array distances{
+                    signedDistanceFromPointToPlane(t.a, p),
+                    signedDistanceFromPointToPlane(t.b, p),
+                    signedDistanceFromPointToPlane(t.c, p),
+                };
+                constexpr std::array<Edge, 3> edges{Edge{0, 1}, Edge{1, 2}, Edge{0, 2}};
+
+                std::vector<Point> intersectionPoints;
+                for (const Edge& edge : edges) {
+                    const int i = edge[0];
+                    const int j = edge[1];
+                    const double di = distances[i];
+                    const double dj = distances[j];
+
+                    if (!edgeIntersectsPlane(di, dj)) {
+                        continue;
+                    }
+
+                    if (std::abs(di) <= geometryEpsilon && std::abs(dj) <= geometryEpsilon) {
+                        addUniquePoint(intersectionPoints, vertices[i]);
+                        addUniquePoint(intersectionPoints, vertices[j]);
+                    } else if (std::abs(di) <= geometryEpsilon) {
+                        addUniquePoint(intersectionPoints, vertices[i]);
+                    } else if (std::abs(dj) <= geometryEpsilon) {
+                        addUniquePoint(intersectionPoints, vertices[j]);
+                    } else {
+                        addUniquePoint(intersectionPoints, segmentPlaneIntersection(vertices[i], vertices[j], p));
+                    }
+                }
+
+                if (intersectionPoints.size() == 2) {
+                    Segment segment{intersectionPoints[0], intersectionPoints[1]};
+                    if (segmentLength(segment) > geometryEpsilon) {
+                        std::lock_guard<std::mutex> lock(intersectionMutex);
+                        intersectionSegments.push_back(segment);
+                    }
+                }
             };
-            constexpr std::array<Edge, 3> edges{Edge{0, 1}, Edge{1, 2}, Edge{0, 2}};
+            Triangle tr ={m.vertices[triangleIndices[0]], m.vertices[triangleIndices[1]], m.vertices[triangleIndices[2]]};
+            pool.enqueue(triangleIntersectingPlane, tr);
+        }
 
-            std::vector<Point> intersectionPoints;
-            for (const Edge& edge : edges) {
-                const int i = edge[0];
-                const int j = edge[1];
-                const double di = distances[i];
-                const double dj = distances[j];
-
-                if (!edgeIntersectsPlane(di, dj)) {
-                    continue;
-                }
-
-                if (std::abs(di) <= geometryEpsilon && std::abs(dj) <= geometryEpsilon) {
-                    addUniquePoint(intersectionPoints, vertices[i]);
-                    addUniquePoint(intersectionPoints, vertices[j]);
-                } else if (std::abs(di) <= geometryEpsilon) {
-                    addUniquePoint(intersectionPoints, vertices[i]);
-                } else if (std::abs(dj) <= geometryEpsilon) {
-                    addUniquePoint(intersectionPoints, vertices[j]);
-                } else {
-                    addUniquePoint(intersectionPoints, segmentPlaneIntersection(vertices[i], vertices[j], p));
-                }
-            }
-
-            if (intersectionPoints.size() == 2) {
-                Segment segment{intersectionPoints[0], intersectionPoints[1]};
-                if (segmentLength(segment) > geometryEpsilon) {
-                    std::lock_guard<std::mutex> lock(intersectionMutex);
-                    intersectionSegments.push_back(segment);
-                }
-            }
-        };
-        Triangle tr ={m.vertices[triangleIndices[0]], m.vertices[triangleIndices[1]], m.vertices[triangleIndices[2]]};
-        futures.push_back(pool.enqueue(triangleIntersectingPlane, tr));
-    }
-
-    for (auto& future : futures) {
-        future.get();
     }
         
     return intersectionSegments;
